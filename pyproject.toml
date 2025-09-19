@@ -1,0 +1,13 @@
+[project]
+name = "simple-insta"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "langchain-groq>=0.3.8",
+    "pycryptodome>=3.23.0",
+    "pycryptodomex>=3.23.0",
+    "streamlit>=1.49.1",
+    "together>=1.5.25",
+]
