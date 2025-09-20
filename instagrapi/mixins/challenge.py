@@ -19,7 +19,7 @@ from instagrapi.exceptions import (
     SubmitPhoneNumberForm,
 )
 
-WAIT_SECONDS = 50
+WAIT_SECONDS = 500
 
 
 class ChallengeChoice(Enum):
@@ -196,7 +196,7 @@ class ChallengeResolveMixin:
                 code = self.challenge_code_handler(self.username, choice)
                 if code:
                     break
-                time.sleep(5 * attempt)
+                time.sleep(500 * attempt)
             # SEND CODE
             time.sleep(WAIT_SECONDS)
             result = session.post(challenge_url, {"security_code": code}).json()
@@ -415,7 +415,7 @@ class ChallengeResolveMixin:
                         f'ChallengeResolve: Choice "email" or "phone_number" '
                         f"(sms) not available to this account {self.last_json}"
                     )
-            wait_seconds = 50
+            wait_seconds = 500
             for attempt in range(24):
                 code = self.challenge_code_handler(self.username, ChallengeChoice.EMAIL)
                 if code:
@@ -444,7 +444,7 @@ class ChallengeResolveMixin:
             #      "challenge_type_enum": "PASSWORD_RESET"}',
             #  'challenge_type_enum_str': 'PASSWORD_RESET',
             #  'status': 'ok'}
-            wait_seconds = 50
+            wait_seconds = 500
             for attempt in range(24):
                 pwd = self.change_password_handler(self.username)
                 if pwd:
@@ -493,7 +493,7 @@ class ChallengeResolveMixin:
                     f'ChallengeResolve: Choice "email" or "phone_number" (sms) '
                     f"not available to this account {self.last_json}"
                 )
-            wait_seconds = 50
+            wait_seconds = 500
             for attempt in range(24):
                 code = self.challenge_code_handler(self.username, ChallengeChoice.EMAIL)
                 if code:
