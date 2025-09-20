@@ -55,28 +55,30 @@ def manual_input_code(self, username: str, choice=None):
     str
         Code
     """
+    # Try to get the code from the Streamlit handler
     try:
-        input_key = f"otp_input_{username}_{choice}"
-        submit_key = f"otp_submit_{username}_{choice}"
-
-        st.write(f"Enter code (6 digits) for {username} ({choice}):")
-        st.text_input("OTP Code:", key=input_key, type="password")
-
-        # Simulate "press Enter" from CLI with a button
-        if st.button("Submit Code", key=submit_key):
-            code = st.session_state.get(input_key, "").strip()
-            if code and code.isdigit():
-                st.success(f"✅ You entered: {code}")
+        # Check if we have access to the global 2FA handler
+        import main
+        if hasattr(main, '_2FA_HANDLER') and main._2FA_HANDLER:
+            code = main._2FA_HANDLER(username, choice)
+            if code:
                 return code
             else:
-                st.error("❌ Invalid code. Please enter digits only")
-                return None
-            
+                # Code not yet available, raise exception to interrupt login flow
+                raise TwoFactorRequired("Waiting for 2FA code input")
     except Exception as e:
-        st.error("❌ Error: Please refresh the Page and try again.")
+        # If there's any error accessing the Streamlit handler, log it
+        print(f"Error accessing Streamlit 2FA handler: {e}")
+    
+    # Fallback to original terminal input method
+    code = None
+    while True:
+        code = input(f"Enter code (6 digits) for {username} ({choice}): ").strip()
+        if code and code.isdigit():
+            break
+        print("Code must be 6 digits")
+    return code  # is not int, because it can start from 0
 
-    # No code yet → like "waiting for input"
-    return None
 
 
 def manual_change_password(self, username: str):
