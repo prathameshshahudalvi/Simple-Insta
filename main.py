@@ -122,8 +122,6 @@ def handle_2fa_code(username: str, choice=None):
     # Return the stored code
     return st.session_state.get(f"2fa_code_{username}")
 
-# Set up the global 2FA handler
-set_2fa_handler()
 
 def get_solution(prompt, api_key, model, api_key_together, model_image):
     os.environ["GROQ_API_KEY"] = api_key
@@ -174,7 +172,8 @@ if st.session_state.ready_to_post:
         else:
             # Check if 2FA is currently required
             if f"2fa_required_{ig_user}" in st.session_state and st.session_state[f"2fa_required_{ig_user}"]:
-                st.info("📱 Please complete the two-factor authentication above before posting.")
+                # Set up the global 2FA handler
+                set_2fa_handler()
             else:
                 try:
                     cl = Client()
