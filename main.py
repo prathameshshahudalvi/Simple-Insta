@@ -11,6 +11,23 @@ import tempfile
 # Global registry for 2FA handler
 _2FA_HANDLER = None
 
+
+# Global Instagram client
+cl = None
+
+def set_2fa_handler():
+    """Set the global 2FA handler"""
+    global _2FA_HANDLER
+    _2FA_HANDLER = handle_2fa_code
+
+def get_instagram_client():
+    """Get or create Instagram client instance"""
+    global cl
+    if cl is None:
+        cl = Client()
+        cl.challenge_code_handler = lambda username, choice: handle_2fa_code(username, choice)
+    return cl
+
 def set_2fa_handler():
     """Set the global 2FA handler"""
     global _2FA_HANDLER
@@ -56,6 +73,10 @@ if "ready_to_post" not in st.session_state:
     st.session_state.ready_to_post = False
 if "for_first_2fa_entry" not in st.session_state:
     st.session_state.for_first_2fa_entry = True
+if "already_requested_2fa" not in st.session_state:
+    st.session_state.already_requested_2fa = False
+if "last_checked_2fa" not in st.session_state:
+    st.session_state.last_checked_2fa = None
 
 
 st.title("Simple Insta")
@@ -78,50 +99,61 @@ def handle_2fa_code(username: str, choice=None):
         The 6-digit code if available, None if waiting for input
     """
     # Initialize session state for 2FA
+    
+    # Check if we already have a code stored
+    if f"2fa_code_{username}" in st.session_state and st.session_state[f"2fa_code_{username}"]:
+        code = st.session_state[f"2fa_code_{username}"]
+        # Clear the code after using it
+        del st.session_state[f"2fa_code_{username}"]
+        if f"2fa_required_{username}" in st.session_state:
+            del st.session_state[f"2fa_required_{username}"]
+        return code
+    
+    # Mark that 2FA is required
     if f"2fa_required_{username}" not in st.session_state:
         st.session_state[f"2fa_required_{username}"] = True
         st.session_state[f"2fa_code_{username}"] = ""
-        st.session_state.for_first_2fa_entry = False
-        # st.rerun()
     
-    # Show 2FA input if required
-    if st.session_state[f"2fa_required_{username}"]:
-        st.warning(f"🔐 Two-factor authentication required for {username}")
-        
-        code = st.text_input(
-            f"Enter verification code (6 digits) for {username} ({choice or 'SMS/Email'}):", 
-            key=f"2fa_input_{username}",
-            max_chars=6,
-            help="Check your phone or email for the verification code"
-        )
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button(f"Submit Code", key=f"2fa_submit_{username}"):
-                if code and code.isdigit() and len(code) == 6:
-                    st.session_state[f"2fa_code_{username}"] = code
-                    st.session_state[f"2fa_required_{username}"] = False
-                    st.success("✅ Code submitted successfully!")
-                    st.rerun()
-                else:
-                    st.error("❌ Please enter a valid 6-digit code")
-        
-        with col2:
-            if st.button(f"Cancel", key=f"2fa_cancel_{username}"):
-                # Reset 2FA state
-                if f"2fa_required_{username}" in st.session_state:
-                    del st.session_state[f"2fa_required_{username}"]
-                if f"2fa_code_{username}" in st.session_state:
-                    del st.session_state[f"2fa_code_{username}"]
-                st.session_state.for_first_2fa_entry = True
-                st.info("2FA cancelled")
-                st.rerun()
-        
-        return None  # Still waiting for code
+    # Show 2FA input form
+    st.warning(f"🔐 Two-factor authentication required for {username}")
     
-    # Return the stored code
-    return st.session_state.get(f"2fa_code_{username}")
+    code = st.text_input(
+        f"Enter verification code (6 digits) for {username} ({choice or 'SMS/Email'}):", 
+        key=f"2fa_input_{username}",
+        max_chars=6,
+        help="Check your phone or email for the verification code"
+    )
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button(f"Submit Code", key=f"2fa_submit_{username}"):
+            if code and code.isdigit() and len(code) == 6:
+                st.session_state[f"2fa_code_{username}"] = code
+                st.session_state[f"2fa_required_{username}"] = False
+                st.success("✅ Code submitted successfully! Please Wait...")
+                st.session_state.last_checked_2fa = True
+                return None  # Don't rerun, let user click the button again
+            else:
+                st.error("❌ Please enter a valid 6-digit code")
+    
+    with col2:
+        if st.button(f"Cancel", key=f"2fa_cancel_{username}"):
+            # Reset 2FA state
+            if f"2fa_required_{username}" in st.session_state:
+                del st.session_state[f"2fa_required_{username}"]
+            if f"2fa_code_{username}" in st.session_state:
+                del st.session_state[f"2fa_code_{username}"]
+            st.session_state.for_first_2fa_entry = True
+            st.info("2FA cancelled")
+            return None
+    
+    # Return None to indicate we're waiting for user input
+    st.session_state.already_requested_2fa = True
+    st.stop()
+    return None
 
+# Set up the global 2FA handler
+set_2fa_handler()
 
 def get_solution(prompt, api_key, model, api_key_together, model_image):
     os.environ["GROQ_API_KEY"] = api_key
@@ -166,50 +198,136 @@ if st.session_state.ready_to_post:
     st.write(st.session_state.solution)
     st.image(st.session_state.img_url)
 
-    if st.button("Post to Instagram"):
-        if not ig_user or not ig_password:
-            st.error("Please enter Instagram credentials in the sidebar")
-        else:
-            # Check if 2FA is currently required
-            if f"2fa_required_{ig_user}" in st.session_state and st.session_state[f"2fa_required_{ig_user}"]:
-                # Set up the global 2FA handler
-                set_2fa_handler()
+    if st.session_state.already_requested_2fa:
+        handle_2fa_code(ig_user)
+   
+    if not st.session_state.last_checked_2fa:
+        if st.button("Post to Instagram") or st.session_state.already_requested_2fa:
+            if not ig_user or not ig_password:
+                st.error("Please enter Instagram credentials in the sidebar")
             else:
-                try:
-                    cl = Client()
-                    
-                    # Set custom 2FA handler for this client
-                    cl.challenge_code_handler = lambda username, choice: handle_2fa_code(username, choice)
-                    
-                    # Attempt login
-                    login_result = cl.login(ig_user, ig_password)
-                    
-                    # If login successful, proceed with upload
-                    if login_result:
-                        st.info("🔄 Uploading to Instagram...")
+                # Check if 2FA is currently required and no code is available
+                if f"2fa_required_{ig_user}" in st.session_state and st.session_state[f"2fa_required_{ig_user}"]:
+                    if f"2fa_code_{ig_user}" not in st.session_state or not st.session_state[f"2fa_code_{ig_user}"]:
+                        st.info("📱 Please complete the two-factor authentication above before posting.")
+                    else:
+                        # We have a 2FA code, attempt login
+                        try:
+                            cl = get_instagram_client()
+                            login_result = cl.login(ig_user, ig_password)
                         
-                        img_data = requests.get(st.session_state.img_url).content
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
-                            tmp_file.write(img_data)
-                            tmp_file_path = tmp_file.name
+                            if login_result:
+                                st.info("🔄 Uploading to Instagram...")
+                            
+                                img_data = requests.get(st.session_state.img_url).content
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+                                    tmp_file.write(img_data)
+                                    tmp_file_path = tmp_file.name
 
-                        cl.photo_upload(tmp_file_path, st.session_state.solution)
-                        st.success("✅ Posted to Instagram successfully!")
-                        os.remove(tmp_file_path)
+                                cl.photo_upload(tmp_file_path, st.session_state.solution)
+                                st.success("✅ Posted to Instagram successfully!")
+                                os.remove(tmp_file_path)
 
-                        # Reset after posting
-                        st.session_state.ready_to_post = False
-                        st.session_state.for_first_2fa_entry = True
+                                # Reset after posting
+                                st.session_state.ready_to_post = False
+                            
+                                # Clear any 2FA session state
+                                for key in list(st.session_state.keys()):
+                                    if key.startswith(f"2fa_") and ig_user in key:
+                                        del st.session_state[key]
+                                    
+                        except TwoFactorRequired:
+                            st.info("🔐 Two-factor authentication required. Please enter the code above.")
+                        except Exception as e:
+                            st.error(f"❌ Error posting to Instagram: {e}")
+                else:
+                    # First time login attempt
+                    try:
+                        cl = get_instagram_client()
+                    
+                        login_result = cl.login(ig_user, ig_password)
+                    
+                        if login_result:
+                            st.info("🔄 Uploading to Instagram...")
                         
-                        # Clear any 2FA session state
-                        for key in list(st.session_state.keys()):
-                            if key.startswith(f"2fa_") and ig_user in key:
-                                del st.session_state[key]
+                            img_data = requests.get(st.session_state.img_url).content
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+                                tmp_file.write(img_data)
+                                tmp_file_path = tmp_file.name
+
+                            cl.photo_upload(tmp_file_path, st.session_state.solution)
+                            st.success("✅ Posted to Instagram successfully!")
+                            os.remove(tmp_file_path)
+
+                            # Reset after posting
+                            st.session_state.ready_to_post = False
                         
-                except TwoFactorRequired:
-                    # 2FA is required - the UI will show the input form
-                    st.info("🔐 Two-factor authentication required. Please enter the code above.")
-                except Exception as e:
-                    st.error(f"❌ Error posting to Instagram: {e}")
-                    # Reset 2FA state on error
-                    st.session_state.for_first_2fa_entry = True
+                    except TwoFactorRequired:
+                        st.info("🔐 Two-factor authentication required. Please enter the code above and click 'Post to Instagram' again.")
+                    except Exception as e:
+                        st.error(f"❌ Error posting to Instagram: {e}")
+    else:
+        if st.session_state.already_requested_2fa:
+            if not ig_user or not ig_password:
+                st.error("Please enter Instagram credentials in the sidebar")
+            else:
+                # Check if 2FA is currently required and no code is available
+                if f"2fa_required_{ig_user}" in st.session_state and st.session_state[f"2fa_required_{ig_user}"]:
+                    if f"2fa_code_{ig_user}" not in st.session_state or not st.session_state[f"2fa_code_{ig_user}"]:
+                        st.info("📱 Please complete the two-factor authentication above before posting.")
+                    else:
+                        # We have a 2FA code, attempt login
+                        try:
+                            cl = get_instagram_client()
+                            login_result = cl.login(ig_user, ig_password)
+                        
+                            if login_result:
+                                st.info("🔄 Uploading to Instagram...")
+                            
+                                img_data = requests.get(st.session_state.img_url).content
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+                                    tmp_file.write(img_data)
+                                    tmp_file_path = tmp_file.name
+
+                                cl.photo_upload(tmp_file_path, st.session_state.solution)
+                                st.success("✅ Posted to Instagram successfully!")
+                                os.remove(tmp_file_path)
+
+                                # Reset after posting
+                                st.session_state.ready_to_post = False
+                            
+                                # Clear any 2FA session state
+                                for key in list(st.session_state.keys()):
+                                    if key.startswith(f"2fa_") and ig_user in key:
+                                        del st.session_state[key]
+                                    
+                        except TwoFactorRequired:
+                            st.info("🔐 Two-factor authentication required. Please enter the code above.")
+                        except Exception as e:
+                            st.error(f"❌ Error posting to Instagram: {e}")
+                else:
+                    # First time login attempt
+                    try:
+                        cl = get_instagram_client()
+                    
+                        login_result = cl.login(ig_user, ig_password)
+                    
+                        if login_result:
+                            st.info("🔄 Uploading to Instagram...")
+                        
+                            img_data = requests.get(st.session_state.img_url).content
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+                                tmp_file.write(img_data)
+                                tmp_file_path = tmp_file.name
+
+                            cl.photo_upload(tmp_file_path, st.session_state.solution)
+                            st.success("✅ Posted to Instagram successfully!")
+                            os.remove(tmp_file_path)
+
+                            # Reset after posting
+                            st.session_state.ready_to_post = False
+                        
+                    except TwoFactorRequired:
+                        st.info("🔐 Two-factor authentication required. Please enter the code above and click 'Post to Instagram' again.")
+                    except Exception as e:
+                        st.error(f"❌ Error posting to Instagram: {e}")

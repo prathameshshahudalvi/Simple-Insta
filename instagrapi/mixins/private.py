@@ -9,7 +9,6 @@ from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 
 from instagrapi import config
-import streamlit as st
 from instagrapi.exceptions import (
     BadPassword,
     ChallengeRequired,
@@ -65,7 +64,10 @@ def manual_input_code(self, username: str, choice=None):
                 return code
             else:
                 # Code not yet available, raise exception to interrupt login flow
-                raise TwoFactorRequired("Waiting for 2FA code input")
+                raise TwoFactorRequired("Waiting for 2FA code input in Streamlit interface")
+    except TwoFactorRequired:
+        # Re-raise the TwoFactorRequired exception
+        raise
     except Exception as e:
         # If there's any error accessing the Streamlit handler, log it
         print(f"Error accessing Streamlit 2FA handler: {e}")
@@ -76,10 +78,7 @@ def manual_input_code(self, username: str, choice=None):
         code = input(f"Enter code (6 digits) for {username} ({choice}): ").strip()
         if code and code.isdigit():
             break
-        print("Code must be 6 digits")
     return code  # is not int, because it can start from 0
-
-
 
 def manual_change_password(self, username: str):
     pwd = None
